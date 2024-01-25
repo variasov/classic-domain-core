@@ -12,6 +12,9 @@ class Criteria(Generic[Entity]):
     соответствуют ли те или иные объекты критерию, или для формирования запроса,
     к примеру, в SQL-хранилище.
 
+    Взят отсюда и чуть-чуть доработано:
+    https://gist.github.com/palankai/f73a18ce06751ab8f245
+
     Пример:
     >>> from datetime import datetime
     ... from dataclasses import dataclass
