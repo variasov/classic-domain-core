@@ -1,19 +1,10 @@
-from dataclasses import dataclass
-from typing import Generic, Optional, Self, TypeVar, get_args, Type, dataclass_transform
+from typing import Generic, Optional, Self, TypeVar, get_args, Type
 
 
 Entity = TypeVar('Entity')
 
 
-@dataclass_transform()
-class CriteriaMeta(type):
-
-    def __new__(mcs, name, bases, attrs):
-        cls = super().__new__(name, bases, attrs)
-        return dataclass(cls, eq=False)
-
-
-class Criteria(Generic[Entity], metaclass=CriteriaMeta):
+class Criteria(Generic[Entity]):
     """
     Базовый объект-критерий.
 

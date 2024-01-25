@@ -1,74 +1,53 @@
-# Classic HTTP Api
+# Classic Criteria
 
-This package provides base for http APIs, based Falcon framework.
+Дает объект-критерий.
 
-Part of project "Classic".
+Нужен для описания критериев объектов, чтобы затем определять,
+соответствуют ли те или иные объекты критерию, или для формирования запроса,
+к примеру, в SQL-хранилище.
 
-Usage:
-
+Пример:
 ```python
-from classic.http_api import App
+from datetime import datetime
+from dataclasses import dataclass
+from classic.criteria import Criteria
 
 
-class Reports:
+@dataclass
+class Task:
+    created_at: datetime
+    finished_at: datetime
+
     
-    def on_get_for_day(self, request, response):
-        response.media = {'day': 'report'}
-        
-    def on_get_for_month(self, request, response):
-        response.media = {'day': 'period'}
+@dataclass
+class TaskOlderThan(Criteria[Task]):
+    date: datetime
 
-        
-app = App()
+    def is_satisfied_by(self, candidate: Task) -> bool:
+        return candidate.created_at < self.date
 
-# Will generate URLs:
-# /api/reports/for_day
-# /api/reports/for_month
-app.register(Reports())
+    
+@dataclass
+class TaskObsolete(Criteria[Task]):
+    days_to_work: int
 
-# If we need to customize url:
-app.register(Reports(), url='/order_reports')
-# Urls will be:
-# /api/order_reports/for_day
-# /api/order_reports/for_month
+    def is_satisfied_by(self, candidate: Task) -> bool:
+        days_spent = candidate.finished_at - candidate.created_at
+        return days_spent.days > self.days_to_work
 
-# We may register methods only:
-app.add_method('/reports/daily', Reports(), suffix='for_day')
-# Url will be /api/reports/daily
+    
+some_task = Task(
+    created_at=datetime(2024, 1, 1),
+    finished_at=datetime(2024, 1, 10),
+)
+criteria = TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
+assert criteria.is_satisfied_by(some_task)
 
-# prefix may be customized in App class:
-app = App(prefix='/api/custom')
 
-# Now, URL will be /api/custom/reports/daily
-app.add_method('/reports/daily', Reports(), suffix='for_day')
-
+some_task = Task(
+    created_at=datetime(2024, 1, 1),
+    finished_at=datetime(2024, 1, 1),
+)
+criteria = TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
+assert not criteria.is_satisfied_by(some_task)
 ```
-
-Also, App class can transform pydantic.ValidationError, AppError and ErrorsList
-from classic.app to formats:
-
-ValidationError:
-
-```json
-[
-  {
-    "type": "namespace.error_code",
-    "msg": "Verbose message",
-    "loc": ["path", "to", "error"] 
-  }
-]
-```
-
-AppError:
-
-```json
-[
-  {
-    "type": "namespace.error_code",
-    "msg": "Verbose message",
-    "ctx": {"any_key": "any_useful_info"}
-  }
-]
-```
-
-Also, this response statuses in this cases will be 400.
