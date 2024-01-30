@@ -1,10 +1,9 @@
-from typing import Generic, Optional, Self, TypeVar, get_args, Type
+from typing import Any, Optional
+
+from .errors import CriteriaNotSatisfied
 
 
-Entity = TypeVar('Entity')
-
-
-class Criteria(Generic[Entity]):
+class Criteria:
     """
     Базовый объект-критерий.
 
@@ -26,14 +25,14 @@ class Criteria(Generic[Entity]):
     ...     finished_at: datetime
     ...
     ... @dataclass
-    ... class TaskOlderThan(Criteria[Task]):
+    ... class TaskOlderThan(Criteria):
     ...     date: datetime
     ...
     ...     def is_satisfied_by(self, candidate: Task) -> bool:
     ...         return candidate.created_at < self.date
     ...
     ... @dataclass
-    ... class TaskObsolete(Criteria[Task]):
+    ... class TaskObsolete(Criteria):
     ...     days_to_work: int
     ...
     ...     def is_satisfied_by(self, candidate: Task) -> bool:
@@ -56,11 +55,10 @@ class Criteria(Generic[Entity]):
     False
     """
 
-    @property
-    def entity_cls(self) -> Type[object]:
-        args = get_args(self)
-        if len(args) >= 0:
-            return args[0]
+    def __init__(self, fn, *args, **kwargs):
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
 
     def __and__(self, other):
         return And(self, other)
@@ -74,54 +72,51 @@ class Criteria(Generic[Entity]):
     def __invert__(self):
         return Invert(self)
 
-    def is_satisfied_by(self, candidate: Entity) -> bool:
-        raise NotImplemented
+    def is_satisfied_by(self, candidate: object) -> bool:
+        return self.fn(candidate, *self.args, **self.kwargs)
 
-    def remainder_unsatisfied_by(self, candidate: Entity) -> Optional[Self]:
-        if self.is_satisfied_by(candidate):
+    def __call__(self, candidate: object) -> bool:
+        return self.is_satisfied_by(candidate)
+
+    def must_be_satisfied(self, candidate: object) -> None:
+        if not self.is_satisfied_by(candidate):
+            raise CriteriaNotSatisfied
+
+    def remainder_unsatisfied_by(
+        self, *args: Any, **kwargs: Any
+    ) -> Optional['Criteria']:
+        if self.is_satisfied_by(*args, **kwargs):
             return None
         else:
             return self
 
 
-class BoundCriteria(Criteria[Entity]):
+class CompositeCriteria(Criteria):
 
-    def __init__(self, fn, *args, **kwargs):
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-
-    def is_satisfied_by(self, candidate: Entity) -> bool:
-        assert isinstance(candidate, self.entity_cls)
-        return self.fn(candidate, *self.args, **self.kwargs)
-
-
-class CompositeCriteria(Criteria[Entity]):
-
-    def __init__(self, *criteria: Criteria[Entity]):
+    def __init__(self, *criteria: Criteria):
         self.criteria = criteria
 
-    def is_satisfied_by(self, candidate: Entity) -> bool:
+    def is_satisfied_by(self, candidate: object) -> bool:
         raise NotImplementedError
 
 
 class And(CompositeCriteria):
 
-    def __and__(self, other: Criteria[Entity]):
+    def __and__(self, other: Criteria):
         if isinstance(other, And):
             self.criteria += other.criteria
         else:
             self.criteria += (other,)
         return self
 
-    def is_satisfied_by(self, candidate: Entity):
+    def is_satisfied_by(self, candidate: object):
         satisfied = all([
             criteria.is_satisfied_by(candidate)
             for criteria in self.criteria
         ])
         return satisfied
 
-    def remainder_unsatisfied_by(self, candidate: Entity):
+    def remainder_unsatisfied_by(self, candidate: object):
         non_satisfied = [
             criteria
             for criteria in self.criteria
@@ -145,7 +140,7 @@ class Or(CompositeCriteria):
             self.criteria += (other,)
         return self
 
-    def is_satisfied_by(self, candidate: Entity):
+    def is_satisfied_by(self, candidate: object):
         satisfied = any([
             criteria.is_satisfied_by(candidate)
             for criteria in self.criteria
@@ -153,35 +148,36 @@ class Or(CompositeCriteria):
         return satisfied
 
 
-class NestedCriteria(Criteria[Entity]):
+class NestedCriteria(Criteria):
 
-    def __init__(self, criteria: Criteria[Entity]):
+    def __init__(self, criteria: Criteria):
         self.criteria = criteria
 
-    def is_satisfied_by(self, candidate: Entity) -> bool:
+    def is_satisfied_by(self, *args, **kwargs: Any) -> bool:
         raise NotImplementedError
 
 
 class Invert(NestedCriteria):
 
-    def is_satisfied_by(self, candidate: Entity):
+    def is_satisfied_by(self, candidate: object):
         return not self.criteria.is_satisfied_by(candidate)
 
 
-class BinaryCriteria(Criteria[Entity]):
+class BinaryCriteria(Criteria):
 
-    def __init__(self, left: Criteria[Entity], right: Criteria[Entity]):
+    def __init__(self, left: Criteria, right: Criteria):
         self.left = left
         self.right = right
 
-    def is_satisfied_by(self, candidate: Entity) -> bool:
+    def is_satisfied_by(self, candidate: object) -> bool:
         raise NotImplementedError
 
 
-class Xor(BinaryCriteria[Entity]):
+class Xor(BinaryCriteria):
 
-    def is_satisfied_by(self, candidate: Entity):
+    def is_satisfied_by(self, candidate: object):
         return (
             self.left.is_satisfied_by(candidate) ^
             self.right.is_satisfied_by(candidate)
         )
+

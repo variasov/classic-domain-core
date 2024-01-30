@@ -1,0 +1,4 @@
+
+
+class CriteriaNotSatisfied(BaseException):
+    pass
