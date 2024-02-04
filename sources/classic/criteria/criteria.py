@@ -1,17 +1,17 @@
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from .errors import CriteriaNotSatisfied
 
 
 class Criteria:
     """
-    Базовый объект-критерий.
+    Базовый класс для критериев.
 
     Нужен для описания критериев объектов, чтобы затем определять,
     соответствуют ли те или иные объекты критерию, или для формирования запроса,
     к примеру, в SQL-хранилище.
 
-    Взят отсюда и чуть-чуть доработано:
+    Взят отсюда и доработано:
     https://gist.github.com/palankai/f73a18ce06751ab8f245
 
     Пример:
@@ -21,6 +21,7 @@ class Criteria:
     ...
     ... @dataclass
     ... class Task:
+    ...     number: int
     ...     created_at: datetime
     ...     finished_at: datetime
     ...
@@ -28,37 +29,33 @@ class Criteria:
     ... class TaskOlderThan(Criteria):
     ...     date: datetime
     ...
-    ...     def is_satisfied_by(self, candidate: Task) -> bool:
-    ...         return candidate.created_at < self.date
+    ...     def is_satisfied_by(self, task: Task) -> bool:
+    ...         return self.date < task.created_at
     ...
     ... @dataclass
     ... class TaskObsolete(Criteria):
     ...     days_to_work: int
     ...
-    ...     def is_satisfied_by(self, candidate: Task) -> bool:
-    ...         days_spent = candidate.finished_at - candidate.created_at
+    ...     def is_satisfied_by(self, task: Task) -> bool:
+    ...         days_spent = task.finished_at - task.created_at
     ...         return days_spent.days > self.days_to_work
     ...
     ... some_task = Task(
     ...     created_at=datetime(2024, 1, 1),
     ...     finished_at=datetime(2024, 1, 10),
     ... )
-    ... criteria = TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
-    ... criteria.is_satisfied_by(some_task)
-    True
-    >>> some_task = Task(
-    ...     created_at=datetime(2024, 1, 1),
-    ...     finished_at=datetime(2024, 1, 1),
+    ... old_and_obsolete = (
+    ...     TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
     ... )
-    ... criteria = TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
-    ... criteria.is_satisfied_by(some_task)
-    False
-    """
+    ... old_and_obsolete.is_satisfied_by(some_task)
+    True
 
-    def __init__(self, fn, *args, **kwargs):
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
+    >>> old_and_obsolete(some_task)
+    True
+
+    >>> list(filter(old_and_obsolete, [Task(1), Task(2), Task(3)]))
+    Task(1)
+    """
 
     def __and__(self, other):
         return And(self, other)
@@ -73,97 +70,135 @@ class Criteria:
         return Invert(self)
 
     def is_satisfied_by(self, candidate: object) -> bool:
-        return self.fn(candidate, *self.args, **self.kwargs)
+        raise NotImplementedError
 
     def __call__(self, candidate: object) -> bool:
         return self.is_satisfied_by(candidate)
 
-    def must_be_satisfied(self, candidate: object) -> None:
+    def must_be_satisfied_by(self, candidate: object) -> None:
         if not self.is_satisfied_by(candidate):
             raise CriteriaNotSatisfied
 
     def remainder_unsatisfied_by(
-        self, *args: Any, **kwargs: Any
+        self, candidate: object
     ) -> Optional['Criteria']:
-        if self.is_satisfied_by(*args, **kwargs):
+        if self.is_satisfied_by(candidate):
             return None
         else:
             return self
 
 
 class CompositeCriteria(Criteria):
+    """
+    Интерфейс критерия с неограниченным количеством вложенных критериев.
+
+    Используется внутри библиотеки.
+    """
+    nested_criteria: Sequence[Criteria]
 
     def __init__(self, *criteria: Criteria):
-        self.criteria = criteria
+        self.nested_criteria = criteria
 
     def is_satisfied_by(self, candidate: object) -> bool:
         raise NotImplementedError
 
 
 class And(CompositeCriteria):
+    """
+    Критерий, проверяющий, что все вложенные критерии удовлетворяются.
+
+    Нужен для обработки логической операции И между несколькими критериями.
+    В норме используется только под капотом и вручную не инстанцируется.
+    """
 
     def __and__(self, other: Criteria):
         if isinstance(other, And):
-            self.criteria += other.criteria
+            self.nested_criteria += other.nested_criteria
         else:
-            self.criteria += (other,)
+            self.nested_criteria += (other,)
         return self
 
     def is_satisfied_by(self, candidate: object):
         satisfied = all([
             criteria.is_satisfied_by(candidate)
-            for criteria in self.criteria
+            for criteria in self.nested_criteria
         ])
         return satisfied
 
     def remainder_unsatisfied_by(self, candidate: object):
         non_satisfied = [
             criteria
-            for criteria in self.criteria
+            for criteria in self.nested_criteria
             if not criteria.is_satisfied_by(candidate)
         ]
         if not non_satisfied:
             return None
         if len(non_satisfied) == 1:
             return non_satisfied[0]
-        if len(non_satisfied) == len(self.criteria):
+        if len(non_satisfied) == len(self.nested_criteria):
             return self
         return And(*non_satisfied)
 
 
 class Or(CompositeCriteria):
+    """
+    Критерий, проверяющий, что хотя бы один вложенный критерий удовлетворяются.
+
+    Нужен для обработки логической операции ИЛИ между несколькими критериями.
+    В норме используется только под капотом и вручную не инстанцируется.
+    """
 
     def __or__(self, other):
         if isinstance(other, Or):
-            self.criteria += other.criteria
+            self.nested_criteria += other.nested_criteria
         else:
-            self.criteria += (other,)
+            self.nested_criteria += (other,)
         return self
 
     def is_satisfied_by(self, candidate: object):
         satisfied = any([
             criteria.is_satisfied_by(candidate)
-            for criteria in self.criteria
+            for criteria in self.nested_criteria
         ])
         return satisfied
 
 
-class NestedCriteria(Criteria):
+class UnaryCriteria(Criteria):
+    """
+    Интерфейс критерия с одним вложенным критерием.
+
+    Используется внутри библиотеки.
+    """
+    nested_criteria: Criteria
 
     def __init__(self, criteria: Criteria):
-        self.criteria = criteria
+        self.nested_criteria = criteria
 
     def is_satisfied_by(self, *args, **kwargs: Any) -> bool:
         raise NotImplementedError
 
 
-class Invert(NestedCriteria):
+class Invert(UnaryCriteria):
+    """
+    Критерий, проверяющий, что вложенный критерии не удовлетворяется.
+
+    Нужен для обработки логической операции НЕ над вложенным критериями.
+    В норме используется только под капотом и вручную не инстанцируется.
+    """
 
     def is_satisfied_by(self, candidate: object):
-        return not self.criteria.is_satisfied_by(candidate)
+        return not self.nested_criteria.is_satisfied_by(candidate)
 
 
 class BinaryCriteria(Criteria):
+    """
+    Интерфейс критерия с двумя вложенными критериями.
+    Нужен для реализации операций, в которых порядок элементов имеет значение.
+
+    Используется внутри библиотеки.
+    """
+    left: Criteria
+    right: Criteria
 
     def __init__(self, left: Criteria, right: Criteria):
         self.left = left
@@ -174,10 +209,16 @@ class BinaryCriteria(Criteria):
 
 
 class Xor(BinaryCriteria):
+    """
+    Критерий, проверяющий, что только один вложенный критерий удовлетворяется.
+
+    Нужен для обработки логической операции ИСКЛЮЧАЮЩЕЕ ИЛИ
+    над вложенными критериями. В норме используется
+    только под капотом и вручную не инстанцируется.
+    """
 
     def is_satisfied_by(self, candidate: object):
         return (
             self.left.is_satisfied_by(candidate) ^
             self.right.is_satisfied_by(candidate)
         )
-

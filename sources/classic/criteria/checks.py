@@ -15,7 +15,7 @@ def check_arg(fn, prop: str, criteria: Criteria, skip: bool = False):
     Декоратор, проверяющий указанные аргумент на соответствие критерию
     при вызове декорируемой функции.
 
-    >>> from classic.criteria import criteria, check_arg
+    >>> from classic.nested_criteria import criteria, check_arg
     ...
     ... @criteria
     ... def is_authenticated(identity):
@@ -38,7 +38,7 @@ def check_arg(fn, prop: str, criteria: Criteria, skip: bool = False):
         if skip and not criteria.is_satisfied_by(candidate):
             return None
         else:
-            criteria.must_be_satisfied(candidate)
+            criteria.must_be_satisfied_by(candidate)
 
         return fn(*args, **kwargs)
 
@@ -50,7 +50,7 @@ def check_result(fn, criteria: Criteria, skip: bool = False):
     """
     Декоратор, проверяющий результат функции на соответствие заданному критерию.
 
-    >>> from classic.criteria import criteria, check_result
+    >>> from classic.nested_criteria import criteria, check_result
     ...
     ... @criteria
     ... def is_none(value):
@@ -77,7 +77,7 @@ def check_result(fn, criteria: Criteria, skip: bool = False):
         if skip and not criteria.is_satisfied_by(result):
             return None
         else:
-            criteria.must_be_satisfied(result)
+            criteria.must_be_satisfied_by(result)
 
         return result
 

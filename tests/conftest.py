@@ -1,6 +1,6 @@
 import pytest
 
-from classic.criteria import criteria, check_arg, check_result
+from classic.criteria import method_criteria, func_criteria, check_arg, check_result
 
 
 class Entity:
@@ -9,14 +9,23 @@ class Entity:
         self.id = id
         self.value = value
 
-    @criteria
+    @method_criteria
     def id_is(self, id_):
         return self.id == id_
 
+    @method_criteria
+    def have_id(self):
+        return self.id is not None
 
-@criteria
+
+@func_criteria
 def id_in(entity, ids):
     return entity.id in ids
+
+
+@func_criteria
+def is_entity(entity):
+    return isinstance(entity, Entity)
 
 
 @pytest.fixture
