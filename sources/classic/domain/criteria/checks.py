@@ -15,7 +15,7 @@ def check_arg(fn, prop: str, criteria: Criteria, skip: bool = False):
     Декоратор, проверяющий указанные аргумент на соответствие критерию
     при вызове декорируемой функции.
 
-    >>> from classic.nested_criteria import criteria, check_arg
+    >>> from classic.domain import criteria, check_arg
     ...
     ... @criteria
     ... def is_authenticated(identity):

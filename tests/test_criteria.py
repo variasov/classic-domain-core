@@ -1,6 +1,6 @@
 import pytest
 
-from classic.criteria import CriteriaNotSatisfied
+from classic.domain.criteria import CriteriaNotSatisfied
 
 from .conftest import Entity, id_in, is_entity
 

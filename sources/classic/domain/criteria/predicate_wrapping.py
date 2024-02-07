@@ -66,20 +66,37 @@ class CriteriaDescriptor:
             return self.criteria_cls
 
 
-def method_criteria(
+def criteria(
     fn
 ) -> CriteriaDescriptor | Type[PredicateCriteria] | PredicateCriteria:
     """
     Декоратор для удобного описания правила через функции:
 
+    Пример:
     >>> from dataclasses import dataclass
-    ... from classic.criteria import method_criteria
+    ... from classic.domain import criteria
     ...
     ... @dataclass
     ... class Book:
     ...     author: str
     ...
-    ...     @method_criteria
+    ... @criteria
+    ... def can_edit_book(book, user: str) -> bool:
+    ...     return book.author == user
+    ...
+    ... some_book = Book('Ivan')
+    ... can_edit_book('Ivan').is_satisfied_by(some_book)
+    True
+
+    Также можно оборачивать методы в классе:
+    >>> from dataclasses import dataclass
+    ... from classic.domain import criteria
+    ...
+    ... @dataclass
+    ... class Book:
+    ...     author: str
+    ...
+    ...     @criteria
     ...     def can_edit(self, user: str) -> bool:
     ...         return self.author == user
     ...
@@ -89,28 +106,14 @@ def method_criteria(
     >>> some_book.can_edit('Ivan')
     True
     """
-    return CriteriaDescriptor(make_predicate_criteria(fn))
+    assert callable(fn)
 
+    new_criteria = make_predicate_criteria(fn)
 
-def func_criteria(
-    fn
-) -> Type[PredicateCriteria] | PredicateCriteria:
-    """
-    Декоратор для удобного описания правила через функции:
+    # Попытка отличить метод от функции.
+    # У методов в __qualname__ написан класс и название метода через точку,
+    # а у функций просто название, без точки
+    if '.' in fn.__qualname__:
+        return CriteriaDescriptor(new_criteria)
 
-    >>> from dataclasses import dataclass
-    ... from classic.criteria import func_criteria
-    ...
-    ... @dataclass
-    ... class Book:
-    ...     author: str
-    ...
-    ... @func_criteria
-    ... def can_edit_book(book, user: str) -> bool:
-    ...     return book.author == user
-    ...
-    ... some_book = Book('Ivan')
-    ... can_edit_book('Ivan').is_satisfied_by(some_book)
-    True
-    """
-    return make_predicate_criteria(fn)
+    return new_criteria

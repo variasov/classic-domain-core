@@ -17,7 +17,7 @@ class Criteria:
     Пример:
     >>> from datetime import datetime
     ... from dataclasses import dataclass
-    ... from classic.criteria import Criteria
+    ... from classic.domain import Criteria
     ...
     ... @dataclass
     ... class Task:
@@ -97,7 +97,7 @@ class CompositeCriteria(Criteria):
     nested_criteria: Sequence[Criteria]
 
     def __init__(self, *criteria: Criteria):
-        self.nested_criteria = criteria
+        self.nested_criteria = list(criteria)
 
     def is_satisfied_by(self, candidate: object) -> bool:
         raise NotImplementedError
