@@ -3,12 +3,12 @@ from .criteria import (
     Predicate, PredicateCriteria, criteria,
     CriteriaNotSatisfied, check_arg, check_result,
 )
-
-from .entities import value_object, entity, root, invariant
+from .invariants import invariant, is_invariant
+from .entities import value_object, entity, root
 from .repos import (
     Repo, InMemoryRepo, ShelveRepo,
     translate_for, is_translator,
 )
 
-# Aliases
+# Alias
 value_obj = value_object

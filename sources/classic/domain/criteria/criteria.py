@@ -1,4 +1,4 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Callable, Union
 
 from .errors import CriteriaNotSatisfied
 
@@ -57,6 +57,8 @@ class Criteria:
     Task(1)
     """
 
+    __init__: Callable
+
     def __and__(self, other):
         return And(self, other)
 
@@ -84,6 +86,15 @@ class Criteria:
     ) -> Optional['Criteria']:
         if self.is_satisfied_by(candidate):
             return None
+        else:
+            return self
+
+    def __get__(
+        self, instance: object,
+        owner: type[object],
+    ) -> Union['Criteria', 'BoundCriteria']:
+        if instance:
+            return BoundCriteria(instance, self)
         else:
             return self
 
@@ -119,11 +130,10 @@ class And(CompositeCriteria):
         return self
 
     def is_satisfied_by(self, candidate: object):
-        satisfied = all([
+        return all([
             criteria.is_satisfied_by(candidate)
             for criteria in self.nested_criteria
         ])
-        return satisfied
 
     def remainder_unsatisfied_by(self, candidate: object):
         non_satisfied = [
@@ -156,11 +166,10 @@ class Or(CompositeCriteria):
         return self
 
     def is_satisfied_by(self, candidate: object):
-        satisfied = any([
+        return any([
             criteria.is_satisfied_by(candidate)
             for criteria in self.nested_criteria
         ])
-        return satisfied
 
 
 class UnaryCriteria(Criteria):
@@ -222,3 +231,27 @@ class Xor(BinaryCriteria):
             self.left.is_satisfied_by(candidate) ^
             self.right.is_satisfied_by(candidate)
         )
+
+
+class BoundCriteria:
+    instance: object
+    criteria: Criteria
+
+    def __init__(self, instance: object, criteria: Criteria) -> None:
+        self.instance = instance
+        self.criteria = criteria
+
+    def __call__(self) -> bool:
+        return self.is_satisfied()
+
+    def is_satisfied(self) -> bool:
+        return self.criteria.is_satisfied_by(self.instance)
+
+    def must_be_satisfied(self) -> None:
+        self.criteria.must_be_satisfied_by(self.instance)
+
+
+class ReturnsTrue(Criteria):
+
+    def is_satisfied_by(self, candidate: object) -> bool:
+        return True

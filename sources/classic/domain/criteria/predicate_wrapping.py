@@ -1,74 +1,70 @@
-from dataclasses import make_dataclass, asdict, dataclass
-import inspect
-from typing import Type, Callable, cast
+from typing import Any, Type, Callable, Sequence
 
 from .criteria import Criteria
 
 
-Predicate = Callable[[...], bool]
+Predicate = Callable[[Any], bool]
 
 
 class PredicateCriteria(Criteria):
     predicate: Predicate
+    args: Sequence[object]
+    kwargs: dict[str, object]
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(
+        self, predicate: Predicate,
+        *args: object, **kwargs: object,
+    ) -> None:
+        self.predicate = predicate
+        self.args = args
+        self.kwargs = kwargs
 
-
-def call_predicate(criteria_: PredicateCriteria, candidate: object) -> bool:
-    return criteria_.predicate(candidate, **asdict(criteria_))
-
-
-def make_predicate_criteria(fn: Predicate) -> (
-    Type[PredicateCriteria] | PredicateCriteria
-):
-    signature = inspect.signature(fn)
-    params = [
-        (param.name, param.annotation)
-        for param in list(signature.parameters.values())[1:]
-    ]
-    cls = make_dataclass(
-        fn.__name__,
-        params,
-        bases=(Criteria,),
-        namespace={
-            'predicate': staticmethod(fn),
-            'is_satisfied_by': call_predicate,
-        }
-    )
-    if not params:
-        return cls()
-
-    return cast(Type[PredicateCriteria], cls)
+    def is_satisfied_by(self, candidate: object) -> bool:
+        return self.predicate(candidate, *self.args, **self.kwargs)
 
 
-@dataclass(frozen=True, slots=True, eq=False)
-class CriteriaCall:
+class BoundPredicateCriteria:
     instance: object
-    criteria_cls: Type[PredicateCriteria]
+    predicate: Predicate
+
+    def __init__(self, instance: object, predicate: Predicate):
+        self.instance = instance
+        self.predicate = predicate
 
     def __call__(self, *args: object, **kwargs: object) -> bool:
-        criteria_ = self.criteria_cls(*args, **kwargs)
+        return self.is_satisfied(*args, **kwargs)
+
+    def is_satisfied(self, *args: object, **kwargs: object) -> bool:
+        criteria_ = PredicateCriteria(self.predicate, *args, **kwargs)
         return criteria_.is_satisfied_by(self.instance)
 
+    def must_be_satisfied(self, *args: object, **kwargs: object) -> None:
+        criteria_ = PredicateCriteria(self.predicate, *args, **kwargs)
+        criteria_.must_be_satisfied_by(self.instance)
 
-@dataclass(frozen=True, slots=True, eq=False)
-class CriteriaDescriptor:
-    criteria_cls: Type[PredicateCriteria] | Criteria
+
+class PredicateCriteriaFactory:
+    predicate: Predicate
+
+    def __init__(self, predicate: Predicate):
+        self.predicate = staticmethod(predicate)
+
+    def __call__(self, *args: object, **kwargs: object) -> PredicateCriteria:
+        return PredicateCriteria(self.predicate, *args, **kwargs)
 
     def __get__(
-        self, instance: object,
-        owner: Type[object],
-    ) -> CriteriaCall | Type[Criteria] | Criteria:
+        self, instance: object, owner: type[object]
+    ) -> PredicateCriteria | BoundPredicateCriteria:
+
         if instance:
-            return CriteriaCall(instance, self.criteria_cls)
+            return BoundPredicateCriteria(instance, self.predicate)
         else:
-            return self.criteria_cls
+            return self
 
 
 def criteria(
     fn
-) -> CriteriaDescriptor | Type[PredicateCriteria] | PredicateCriteria:
+) -> Type[PredicateCriteria] | PredicateCriteria:
     """
     Декоратор для удобного описания правила через функции:
 
@@ -81,7 +77,7 @@ def criteria(
     ...     author: str
     ...
     ... @criteria
-    ... def can_edit_book(book, user: str) -> bool:
+    ... def can_edit_book(book, user):
     ...     return book.author == user
     ...
     ... some_book = Book('Ivan')
@@ -97,7 +93,7 @@ def criteria(
     ...     author: str
     ...
     ...     @criteria
-    ...     def can_edit(self, user: str) -> bool:
+    ...     def can_edit(self, user):
     ...         return self.author == user
     ...
     ... some_book = Book('Ivan')
@@ -108,12 +104,10 @@ def criteria(
     """
     assert callable(fn)
 
-    new_criteria = make_predicate_criteria(fn)
+    return PredicateCriteriaFactory(fn)
 
-    # Попытка отличить метод от функции.
-    # У методов в __qualname__ написан класс и название метода через точку,
-    # а у функций просто название, без точки
-    if '.' in fn.__qualname__:
-        return CriteriaDescriptor(new_criteria)
-
-    return new_criteria
+    # # Попытка отличить метод от функции.
+    # # У методов в __qualname__ написан класс и название метода через точку,
+    # # а у функций просто название, без точки
+    # if '.' in fn.__qualname__:
+    #     return CriteriaDescriptor(new_criteria)

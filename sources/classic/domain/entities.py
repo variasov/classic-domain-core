@@ -4,66 +4,16 @@ from typing import Collection, get_origin, get_args, TypeVar
 
 from classic.domain import And
 
-from .criteria import Criteria, criteria
+from .criteria import Criteria, ReturnsTrue
+
+from . import invariants
 
 
-method = TypeVar('method')
-
-
-def invariant(fn: method) -> method:
-    fn.__is_invariant__ = True
-    return criteria(fn)
-
-
-def is_invariant(obj: object) -> bool:
-    return hasattr(obj, '__is_invariant__')
-
-
-@invariant
-def check_child_invariants(instance: object, child_name: str):
-    return getattr(instance, child_name).all_invariants
-
-
-@invariant
-def check_child_iterator_invariants(instance: object, child_name: str):
-    return all(
-        item.all_invariants
-        for item in getattr(instance, child_name)
-    )
-
-
-@invariant
-def check_child_dict_items_invariants(instance: object, child_name: str):
-    return all(
-        key.all_invariants and value.all_invariants
-        for key, value in getattr(instance, child_name).items()
-    )
-
-
-@invariant
-def check_child_dict_values_invariants(instance: object, child_name: str):
-    return all(
-        item.all_invariants
-        for item in getattr(instance, child_name).values()
-    )
-
-
-@invariant
-def check_child_dict_keys_invariants(instance: object, child_name: str):
-    return all(
-        item.all_invariants
-        for item in getattr(instance, child_name).keys()
-    )
-
-
-def child_invariants(cls):
-    childs: list[Criteria] = []
+def descendants_invariants(cls):
+    descendants: list[Criteria] = []
     for name, child_cls in inspect.get_annotations(cls).items():
-        if (
-            (is_entity(child_cls) or is_value_object(child_cls)) and
-            hasattr(child_cls, 'all_invariants')
-        ):
-            childs.append(check_child_invariants(name))
+        if is_entity(child_cls) or is_value_object(child_cls):
+            descendants.append(invariants.check_child(name))
             continue
 
         origin = get_origin(child_cls)
@@ -83,52 +33,60 @@ def child_invariants(cls):
             )
             if key_is_domain:
                 if value_is_domain:
-                    childs.append(
-                        check_child_dict_items_invariants(name)
+                    descendants.append(
+                        invariants.check_child_dict_items(name)
                     )
                 else:
-                    childs.append(
-                        check_child_dict_keys_invariants(name)
+                    descendants.append(
+                        invariants.check_child_dict_keys(name)
                     )
             elif value_is_domain:
-                childs.append(
-                    check_child_dict_values_invariants(name)
+                descendants.append(
+                    invariants.check_child_dict_values(name)
                 )
 
         elif issubclass(origin, Collection):
-            childs.append(
-                check_child_iterator_invariants(name)
+            descendants.append(
+                invariants.check_child_iterator(name)
             )
 
-    return And(*childs)
+    return descendants
 
 
-def get_all_invariants(cls):
-    return And(*(
-        invariant_ for __, invariant_
-        in inspect.getmembers(cls, is_invariant)
-    )) & child_invariants(cls)
+def build_invariants(cls) -> Criteria:
+    cls_invariants = [
+        invariant_() for __, invariant_
+        in inspect.getmembers(cls, invariants.is_invariant)
+    ] + descendants_invariants(cls)
+    if cls_invariants:
+        return And(*cls_invariants)
+    else:
+        return ReturnsTrue()
 
 
-Class = TypeVar('Class')
+Class = TypeVar('Class', bound=type[object])
 
 
 def value_object(cls: Class) -> Class:
-    cls.all_invariants = get_all_invariants(cls)
+    cls.__invariants__ = build_invariants(cls)
     cls.__domain_object__ = value_object
     return dataclass(cls, frozen=True, eq=True, order=False)
 
 
 def entity(cls: Class) -> Class:
-    cls.all_invariants = get_all_invariants(cls)
+    cls.__invariants__ = build_invariants(cls)
     cls.__domain_object__ = entity
     return dataclass(cls)
 
 
 def root(cls: Class) -> Class:
-    cls.all_invariants = get_all_invariants(cls)
+    cls.__invariants__ = build_invariants(cls)
     cls.__domain_object__ = root
     return dataclass(cls)
+
+
+def all_invariants(cls: Class) -> Criteria:
+    return cls.__invariants__
 
 
 def is_domain_object(obj: object) -> bool:
