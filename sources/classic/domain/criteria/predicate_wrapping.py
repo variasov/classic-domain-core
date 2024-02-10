@@ -1,4 +1,5 @@
-from typing import Any, Type, Callable, Sequence
+from dataclasses import asdict
+from typing import Any, Type, Callable, Sequence, cast
 
 from .criteria import Criteria
 
@@ -12,54 +13,72 @@ class PredicateCriteria(Criteria):
     kwargs: dict[str, object]
 
     def __init__(
-        self, predicate: Predicate,
+        self,
         *args: object, **kwargs: object,
     ) -> None:
-        self.predicate = predicate
         self.args = args
         self.kwargs = kwargs
 
     def is_satisfied_by(self, candidate: object) -> bool:
         return self.predicate(candidate, *self.args, **self.kwargs)
 
+    def __str_(self):
+        return self.predicate.__name__
+
+
+def call_predicate(criteria_: PredicateCriteria, candidate: object) -> bool:
+    return criteria_.predicate(candidate, **asdict(criteria_))
+
+
+def make_predicate_criteria(fn: Predicate) -> (
+    Type[PredicateCriteria] | PredicateCriteria
+):
+    new_cls = type(
+        fn.__name__,
+        (PredicateCriteria,),
+        {
+            'predicate': staticmethod(fn),
+            '__is_invariant__': getattr(fn, '__is_invariant__', False),
+        }
+    )
+    return cast(Type[PredicateCriteria], new_cls)
+
 
 class BoundPredicateCriteria:
     instance: object
-    predicate: Predicate
+    criteria_cls: type[PredicateCriteria]
 
-    def __init__(self, instance: object, predicate: Predicate):
+    def __init__(self, instance: object, criteria_cls: type[PredicateCriteria]):
         self.instance = instance
-        self.predicate = predicate
+        self.criteria_cls = criteria_cls
 
     def __call__(self, *args: object, **kwargs: object) -> bool:
         return self.is_satisfied(*args, **kwargs)
 
     def is_satisfied(self, *args: object, **kwargs: object) -> bool:
-        criteria_ = PredicateCriteria(self.predicate, *args, **kwargs)
-        return criteria_.is_satisfied_by(self.instance)
+        return self.criteria_cls(*args, **kwargs).is_satisfied_by(self.instance)
 
     def must_be_satisfied(self, *args: object, **kwargs: object) -> None:
-        criteria_ = PredicateCriteria(self.predicate, *args, **kwargs)
-        criteria_.must_be_satisfied_by(self.instance)
+        self.criteria_cls(*args, **kwargs).must_be_satisfied_by(self.instance)
 
 
 class PredicateCriteriaFactory:
-    predicate: Predicate
+    criteria_cls: type[PredicateCriteria]
 
-    def __init__(self, predicate: Predicate):
-        self.predicate = staticmethod(predicate)
+    def __init__(self, criteria_cls: type[PredicateCriteria]):
+        self.criteria_cls = criteria_cls
 
     def __call__(self, *args: object, **kwargs: object) -> PredicateCriteria:
-        return PredicateCriteria(self.predicate, *args, **kwargs)
+        return self.criteria_cls(*args, **kwargs)
 
     def __get__(
         self, instance: object, owner: type[object]
     ) -> PredicateCriteria | BoundPredicateCriteria:
 
         if instance:
-            return BoundPredicateCriteria(instance, self.predicate)
+            return BoundPredicateCriteria(instance, self.criteria_cls)
         else:
-            return self
+            return self.criteria_cls
 
 
 def criteria(
@@ -104,7 +123,9 @@ def criteria(
     """
     assert callable(fn)
 
-    return PredicateCriteriaFactory(fn)
+    return PredicateCriteriaFactory(
+        make_predicate_criteria(fn)
+    )
 
     # # Попытка отличить метод от функции.
     # # У методов в __qualname__ написан класс и название метода через точку,
