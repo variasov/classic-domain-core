@@ -7,24 +7,27 @@ Function = TypeVar('Function')
 
 
 def invariant(fn: Function) -> Function:
-    fn = criteria(fn)
     fn.__is_invariant__ = True
+    fn = criteria(fn)
     return fn
 
 
 def is_invariant(obj: object) -> bool:
-    return hasattr(obj, '__is_invariant__')
+    return (
+        getattr(obj, '__is_invariant__', False) or
+        getattr(getattr(obj, 'predicate', None), '__is_invariant__', False)
+    )
 
 
 @criteria
 def check_child(instance: object, child_name: str):
-    return getattr(instance, child_name).__invariants__.is_satisfied()
+    return getattr(instance, child_name).invariants.is_satisfied()
 
 
 @criteria
 def check_child_iterator(instance: object, child_name: str):
     return all(
-        item.__invariants__.is_satisfied()
+        item.invariants.is_satisfied()
         for item in getattr(instance, child_name)
     )
 
@@ -32,8 +35,8 @@ def check_child_iterator(instance: object, child_name: str):
 @criteria
 def check_child_dict_items(instance: object, child_name: str):
     return all(
-        key.__invariants__.is_satisfied() and
-        value.__invariants__.is_satisfied()
+        key.invariants.is_satisfied() and
+        value.invariants.is_satisfied()
         for key, value in getattr(instance, child_name).items()
     )
 
@@ -41,7 +44,7 @@ def check_child_dict_items(instance: object, child_name: str):
 @criteria
 def check_child_dict_values(instance: object, child_name: str):
     return all(
-        item.__invariants__.is_satisfied()
+        item.invariants.is_satisfied()
         for item in getattr(instance, child_name).values()
     )
 
@@ -49,6 +52,6 @@ def check_child_dict_values(instance: object, child_name: str):
 @criteria
 def check_child_dict_keys(instance: object, child_name: str):
     return all(
-        item.__invariants__.is_satisfied()
+        item.invariants.is_satisfied()
         for item in getattr(instance, child_name).keys()
     )

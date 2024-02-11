@@ -4,11 +4,8 @@ from .criteria import (
     CriteriaNotSatisfied, check_arg, check_result,
 )
 from .invariants import invariant, is_invariant
-from .entities import value_object, entity, root
+from .entities import Value, Entity, Root
 from .repos import (
     Repo, InMemoryRepo, ShelveRepo,
     translate_for, is_translator,
 )
-
-# Alias
-value_obj = value_object

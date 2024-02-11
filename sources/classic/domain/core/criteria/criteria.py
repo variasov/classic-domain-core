@@ -17,7 +17,7 @@ class Criteria:
     Пример:
     >>> from datetime import datetime
     ... from dataclasses import dataclass
-    ... from classic.domain import Criteria
+    ... from classic.domain.core import Criteria
     ...
     ... @dataclass
     ... class Task:
@@ -92,11 +92,66 @@ class Criteria:
     def __get__(
         self, instance: object,
         owner: type[object],
-    ) -> Union['Criteria', 'BoundCriteria']:
+    ) -> Union['Criteria', 'BoundFormedCriteria']:
         if instance:
-            return BoundCriteria(instance, self)
+            return BoundFormedCriteria(instance, self)
         else:
             return self
+
+
+class BoundFormedCriteria:
+    instance: object
+    criteria: Criteria
+
+    def __init__(self, instance: object, criteria: Criteria) -> None:
+        self.instance = instance
+        self.criteria = criteria
+
+    def __call__(self) -> bool:
+        return self.is_satisfied()
+
+    def is_satisfied(self) -> bool:
+        return self.criteria.is_satisfied_by(self.instance)
+
+    def must_be_satisfied(self) -> None:
+        self.criteria.must_be_satisfied_by(self.instance)
+
+
+class BoundUnformedCriteria:
+    instance: object
+    criteria_cls: type[Criteria]
+
+    def __init__(self, instance: object, criteria_cls: type[Criteria]):
+        self.instance = instance
+        self.criteria_cls = criteria_cls
+
+    def __call__(self, *args: object, **kwargs: object) -> bool:
+        return self.is_satisfied(*args, **kwargs)
+
+    def is_satisfied(self, *args: object, **kwargs: object) -> bool:
+        return self.criteria_cls(*args, **kwargs).is_satisfied_by(self.instance)
+
+    def must_be_satisfied(self, *args: object, **kwargs: object) -> None:
+        self.criteria_cls(*args, **kwargs).must_be_satisfied_by(self.instance)
+
+
+class CriteriaDescriptor:
+    criteria_cls: type[Criteria]
+
+    def __init__(self, criteria_cls: type[Criteria]):
+        self.criteria_cls = criteria_cls
+
+    def __call__(self, *args: object, **kwargs: object) -> Criteria:
+        return self.criteria_cls(*args, **kwargs)
+
+    def __get__(
+        self, instance: object, owner: type[object]
+    ) -> Criteria | BoundUnformedCriteria:
+
+        if instance:
+            return BoundUnformedCriteria(instance, self.criteria_cls)
+        else:
+            return self.criteria_cls
 
 
 class CompositeCriteria(Criteria):
@@ -233,25 +288,13 @@ class Xor(BinaryCriteria):
         )
 
 
-class BoundCriteria:
-    instance: object
-    criteria: Criteria
-
-    def __init__(self, instance: object, criteria: Criteria) -> None:
-        self.instance = instance
-        self.criteria = criteria
-
-    def __call__(self) -> bool:
-        return self.is_satisfied()
-
-    def is_satisfied(self) -> bool:
-        return self.criteria.is_satisfied_by(self.instance)
-
-    def must_be_satisfied(self) -> None:
-        self.criteria.must_be_satisfied_by(self.instance)
-
-
 class ReturnsTrue(Criteria):
 
     def is_satisfied_by(self, candidate: object) -> bool:
         return True
+
+
+class ReturnsFalse(Criteria):
+
+    def is_satisfied_by(self, candidate: object) -> bool:
+        return False

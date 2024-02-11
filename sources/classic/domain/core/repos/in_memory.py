@@ -1,21 +1,22 @@
+from copy import deepcopy
 from typing import Sequence
 
-from classic.domain.criteria import Criteria
+from ..criteria import Criteria
 
-from .base import Persistent, Repo
+from .base import Root, Repo
 
 
-class InMemoryRepo(Repo):
+class InMemoryRepo(Repo[Root]):
 
     def __init__(self):
         self.objects = {}
 
-    def save(self, *objects: Persistent) -> None:
+    def save(self, *objects: Root) -> None:
         for obj in objects:
             self.objects[obj.id] = obj
 
-    def get(self, object_id: object) -> Persistent | None:
-        return self.objects[object_id]
+    def get(self, object_id: object) -> Root | None:
+        return deepcopy(self.objects[object_id])
 
     def find(
         self, criteria: Criteria,
@@ -25,7 +26,7 @@ class InMemoryRepo(Repo):
     ) -> Sequence[object]:
         return list(filter(criteria, self.objects))
 
-    def remove(self, *objects: Persistent) -> None:
+    def remove(self, *objects: Root) -> None:
         for obj in objects:
             del self.objects[obj.id]
 
@@ -35,10 +36,10 @@ class InMemoryRepo(Repo):
 
     def count(self, criteria: Criteria = None) -> int:
         return len(
-            filter(criteria, self.objects)
+            filter(criteria, self.objects.values())
             if criteria is not None
             else self.objects
         )
 
     def exists(self, criteria: Criteria) -> bool:
-        return any(filter(criteria, self.objects))
+        return any(filter(criteria, self.objects.values()))

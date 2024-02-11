@@ -1,6 +1,6 @@
 import pytest
 
-from classic.domain.criteria import criteria, CriteriaNotSatisfied
+from classic.domain.core import criteria, CriteriaNotSatisfied
 
 
 class Entity:
