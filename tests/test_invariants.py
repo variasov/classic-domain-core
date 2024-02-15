@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from classic.domain.core import (
-    Value, Entity, Root,
+    Value, Entity, Root, HaveInvariants,
     invariant, CriteriaNotSatisfied,
 )
 
@@ -22,15 +22,16 @@ class Base:
         return isinstance(self.str_field, str)
 
 
-class SomeValue(Base, Value):
+class SomeValue(Base, Value, HaveInvariants):
     pass
 
 
-class SomeEntity(Base, Entity):
-    pass
+class SomeEntity(Base, Entity[int], HaveInvariants):
+    id: int
 
 
-class SomeRoot(Base, Root):
+class SomeRoot(Base, Root[int], HaveInvariants):
+    id: int
     child: list[SomeEntity] = field(default_factory=list)
 
 

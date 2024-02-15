@@ -1,6 +1,9 @@
-from typing import TypeVar
+import inspect
+from typing import Collection, get_origin, get_args, ClassVar, TypeVar
 
-from .criteria import criteria
+from .entities import Value, Entity
+from .criteria import Criteria, And, ReturnsTrue
+from .predicate_wrapping import criteria
 
 
 Function = TypeVar('Function')
@@ -55,3 +58,71 @@ def check_child_dict_keys(instance: object, child_name: str):
         item.invariants.is_satisfied()
         for item in getattr(instance, child_name).keys()
     )
+
+
+CHECKABLE = Value, Entity
+
+
+def descendants_invariants(cls):
+    descendants: list[Criteria] = []
+    for name, child_cls in inspect.get_annotations(cls).items():
+        if isinstance(child_cls, CHECKABLE):
+            descendants.append(check_child(name))
+            continue
+
+        origin = get_origin(child_cls)
+        if not origin:
+            continue
+
+        if isinstance(origin, dict):
+            args = get_args(child_cls)
+            if len(args) != 2:
+                continue
+
+            key_type, value_type = args
+            key_is_domain = isinstance(key_type, CHECKABLE)
+            value_is_domain = isinstance(value_type, CHECKABLE)
+
+            if key_is_domain:
+                if value_is_domain:
+                    descendants.append(
+                        check_child_dict_items(name)
+                    )
+                else:
+                    descendants.append(
+                        check_child_dict_keys(name)
+                    )
+            elif value_is_domain:
+                descendants.append(
+                    check_child_dict_values(name)
+                )
+
+        elif issubclass(origin, Collection):
+            descendants.append(
+                check_child_iterator(name)
+            )
+
+    return descendants
+
+
+def build_invariants(cls) -> Criteria:
+    cls_invariants = [
+        invariant_() for __, invariant_
+        in inspect.getmembers(cls, is_invariant)
+    ] + descendants_invariants(cls)
+    if cls_invariants:
+        return And(*cls_invariants)
+    else:
+        return ReturnsTrue()
+
+
+class HaveInvariants:
+    """
+    Базовый класс для всех доменных объектов.
+    """
+
+    invariants: ClassVar[Criteria]
+
+    def __init_subclass__(cls, **kwargs):
+        if not inspect.isabstract(cls):
+            cls.invariants = build_invariants(cls)

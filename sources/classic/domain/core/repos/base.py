@@ -4,6 +4,7 @@ from typing import (
 )
 
 from ..criteria import Criteria
+from ..entities import ID
 from .. import entities
 
 from .translate import translators_map
@@ -12,7 +13,7 @@ from .translate import translators_map
 Root = TypeVar('Root', bound=entities.Root)
 
 
-class Repo(Generic[Root]):
+class Repo(Generic[Root, ID]):
     root: type[Root] = None
     _translators: ClassVar[dict[Type[Criteria], Callable]]
 
@@ -23,31 +24,31 @@ class Repo(Generic[Root]):
         except IndexError:
             pass
         else:
-            if issubclass(root, entities.Root):
-                cls.root = root
+            assert issubclass(root, entities.Root)
+            cls.root = root
 
     def save(self, *objects: Root) -> None:
         raise NotImplemented
 
-    def get(self, id_) -> Root | None:
+    def get(self, id_: ID) -> Root | None:
         raise NotImplemented
 
     def find(
-        self, criteria: Criteria,
+        self, criteria: Criteria[Root],
         order_by: str = None,
         limit: int = None,
         offset: int = None,
     ) -> Sequence[Root]:
         raise NotImplemented
 
-    def count(self, criteria: Criteria = None) -> int:
+    def count(self, criteria: Criteria[Root] = None) -> int:
         raise NotImplemented
 
-    def exists(self, criteria: Criteria) -> bool:
+    def exists(self, criteria: Criteria[Root]) -> bool:
         raise NotImplemented
 
     def remove(self, *objects: Root) -> None:
         raise NotImplemented
 
-    def remove_by_id(self, *object_ids: object) -> None:
+    def remove_by_id(self, *object_ids: ID) -> None:
         raise NotImplemented

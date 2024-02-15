@@ -1,9 +1,14 @@
-from typing import Any, Optional, Sequence, Callable, Union
+from typing import Optional, Sequence, Generic, TypeVar, overload
+
+from classic.domain.core import entities
 
 from .errors import CriteriaNotSatisfied
 
 
-class Criteria:
+DomainObject = TypeVar('DomainObject', bound=entities.DomainObject)
+
+
+class Criteria(Generic[DomainObject]):
     """
     Базовый класс для критериев.
 
@@ -11,7 +16,7 @@ class Criteria:
     соответствуют ли те или иные объекты критерию, или для формирования запроса,
     к примеру, в SQL-хранилище.
 
-    Взят отсюда и доработано:
+    Взято отсюда и доработано:
     https://gist.github.com/palankai/f73a18ce06751ab8f245
 
     Пример:
@@ -26,14 +31,14 @@ class Criteria:
     ...     finished_at: datetime
     ...
     ... @dataclass
-    ... class TaskOlderThan(Criteria):
+    ... class TaskOlderThan(Criteria[Task]):
     ...     date: datetime
     ...
     ...     def is_satisfied_by(self, task: Task) -> bool:
     ...         return self.date < task.created_at
     ...
     ... @dataclass
-    ... class TaskObsolete(Criteria):
+    ... class TaskObsolete(Criteria[Task]):
     ...     days_to_work: int
     ...
     ...     def is_satisfied_by(self, task: Task) -> bool:
@@ -45,7 +50,7 @@ class Criteria:
     ...     finished_at=datetime(2024, 1, 10),
     ... )
     ... old_and_obsolete = (
-    ...     TaskObsolete(3) & TaskOlderThan(datetime(2024, 1, 31))
+    ...     TaskOlderThan(datetime(2024, 1, 31)) & TaskObsolete(3)
     ... )
     ... old_and_obsolete.is_satisfied_by(some_task)
     True
@@ -57,53 +62,76 @@ class Criteria:
     Task(1)
     """
 
-    __init__: Callable
-
-    def __and__(self, other):
+    def __and__(
+        self, other: 'Criteria[DomainObject]',
+    ) -> 'Criteria[DomainObject]':
         return And(self, other)
 
-    def __or__(self, other):
+    def __or__(
+        self, other: 'Criteria[DomainObject]',
+    ) -> 'Criteria[DomainObject]':
         return Or(self, other)
 
-    def __xor__(self, other):
+    def __xor__(
+        self, other: 'Criteria[DomainObject]',
+    ) -> 'Criteria[DomainObject]':
         return Xor(self, other)
 
-    def __invert__(self):
+    def __invert__(
+        self: 'Criteria[DomainObject]',
+    ) -> 'Criteria[DomainObject]':
         return Invert(self)
 
-    def is_satisfied_by(self, candidate: object) -> bool:
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         raise NotImplementedError
 
-    def __call__(self, candidate: object) -> bool:
+    def __call__(self, candidate: DomainObject) -> bool:
         return self.is_satisfied_by(candidate)
 
-    def must_be_satisfied_by(self, candidate: object) -> None:
+    def must_be_satisfied_by(self, candidate: DomainObject) -> None:
         if not self.is_satisfied_by(candidate):
             raise CriteriaNotSatisfied
 
     def remainder_unsatisfied_by(
-        self, candidate: object
-    ) -> Optional['Criteria']:
+        self, candidate: DomainObject
+    ) -> Optional['Criteria[DomainObject]']:
         if self.is_satisfied_by(candidate):
             return None
         else:
             return self
 
+    @overload
     def __get__(
-        self, instance: object,
-        owner: type[object],
-    ) -> Union['Criteria', 'BoundFormedCriteria']:
+        self, instance: DomainObject,
+        owner: type[DomainObject],
+    ) -> 'BoundFormedCriteria[DomainObject]':
+        ...
+
+    @overload
+    def __get__(
+        self, instance: None,
+        owner: type[DomainObject],
+    ) -> 'Criteria[DomainObject]':
+        ...
+
+    def __get__(
+        self, instance: DomainObject,
+        owner: type[DomainObject],
+    ):
         if instance:
             return BoundFormedCriteria(instance, self)
         else:
             return self
 
 
-class BoundFormedCriteria:
-    instance: object
-    criteria: Criteria
+class BoundFormedCriteria(Generic[DomainObject]):
+    instance: DomainObject
+    criteria: Criteria[DomainObject]
 
-    def __init__(self, instance: object, criteria: Criteria) -> None:
+    def __init__(
+        self, instance: DomainObject,
+        criteria: Criteria[DomainObject],
+    ) -> None:
         self.instance = instance
         self.criteria = criteria
 
@@ -117,59 +145,22 @@ class BoundFormedCriteria:
         self.criteria.must_be_satisfied_by(self.instance)
 
 
-class BoundUnformedCriteria:
-    instance: object
-    criteria_cls: type[Criteria]
-
-    def __init__(self, instance: object, criteria_cls: type[Criteria]):
-        self.instance = instance
-        self.criteria_cls = criteria_cls
-
-    def __call__(self, *args: object, **kwargs: object) -> bool:
-        return self.is_satisfied(*args, **kwargs)
-
-    def is_satisfied(self, *args: object, **kwargs: object) -> bool:
-        return self.criteria_cls(*args, **kwargs).is_satisfied_by(self.instance)
-
-    def must_be_satisfied(self, *args: object, **kwargs: object) -> None:
-        self.criteria_cls(*args, **kwargs).must_be_satisfied_by(self.instance)
-
-
-class CriteriaDescriptor:
-    criteria_cls: type[Criteria]
-
-    def __init__(self, criteria_cls: type[Criteria]):
-        self.criteria_cls = criteria_cls
-
-    def __call__(self, *args: object, **kwargs: object) -> Criteria:
-        return self.criteria_cls(*args, **kwargs)
-
-    def __get__(
-        self, instance: object, owner: type[object]
-    ) -> Criteria | BoundUnformedCriteria:
-
-        if instance:
-            return BoundUnformedCriteria(instance, self.criteria_cls)
-        else:
-            return self.criteria_cls
-
-
-class CompositeCriteria(Criteria):
+class CompositeCriteria(Criteria[DomainObject]):
     """
     Интерфейс критерия с неограниченным количеством вложенных критериев.
 
     Используется внутри библиотеки.
     """
-    nested_criteria: Sequence[Criteria]
+    nested_criteria: Sequence[Criteria[DomainObject]]
 
-    def __init__(self, *criteria: Criteria):
+    def __init__(self, *criteria: Criteria[DomainObject]):
         self.nested_criteria = list(criteria)
 
-    def is_satisfied_by(self, candidate: object) -> bool:
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         raise NotImplementedError
 
 
-class And(CompositeCriteria):
+class And(CompositeCriteria[DomainObject]):
     """
     Критерий, проверяющий, что все вложенные критерии удовлетворяются.
 
@@ -177,20 +168,23 @@ class And(CompositeCriteria):
     В норме используется только под капотом и вручную не инстанцируется.
     """
 
-    def __and__(self, other: Criteria):
+    def __and__(self, other: Criteria[DomainObject]) -> Criteria[DomainObject]:
         if isinstance(other, And):
             self.nested_criteria += other.nested_criteria
         else:
             self.nested_criteria += (other,)
         return self
 
-    def is_satisfied_by(self, candidate: object):
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return all([
             criteria.is_satisfied_by(candidate)
             for criteria in self.nested_criteria
         ])
 
-    def remainder_unsatisfied_by(self, candidate: object):
+    def remainder_unsatisfied_by(
+        self, candidate: DomainObject,
+    ) -> Criteria[DomainObject] | None:
+
         non_satisfied = [
             criteria
             for criteria in self.nested_criteria
@@ -205,7 +199,7 @@ class And(CompositeCriteria):
         return And(*non_satisfied)
 
 
-class Or(CompositeCriteria):
+class Or(CompositeCriteria[DomainObject]):
     """
     Критерий, проверяющий, что хотя бы один вложенный критерий удовлетворяются.
 
@@ -213,36 +207,33 @@ class Or(CompositeCriteria):
     В норме используется только под капотом и вручную не инстанцируется.
     """
 
-    def __or__(self, other):
+    def __or__(self, other: Criteria[DomainObject]) -> Criteria[DomainObject]:
         if isinstance(other, Or):
             self.nested_criteria += other.nested_criteria
         else:
             self.nested_criteria += (other,)
         return self
 
-    def is_satisfied_by(self, candidate: object):
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return any([
             criteria.is_satisfied_by(candidate)
             for criteria in self.nested_criteria
         ])
 
 
-class UnaryCriteria(Criteria):
+class UnaryCriteria(Criteria[DomainObject]):
     """
     Интерфейс критерия с одним вложенным критерием.
 
     Используется внутри библиотеки.
     """
-    nested_criteria: Criteria
+    nested_criteria: Criteria[DomainObject]
 
-    def __init__(self, criteria: Criteria):
+    def __init__(self, criteria: Criteria[DomainObject]) -> None:
         self.nested_criteria = criteria
 
-    def is_satisfied_by(self, *args, **kwargs: Any) -> bool:
-        raise NotImplementedError
 
-
-class Invert(UnaryCriteria):
+class Invert(UnaryCriteria[DomainObject]):
     """
     Критерий, проверяющий, что вложенный критерии не удовлетворяется.
 
@@ -250,11 +241,11 @@ class Invert(UnaryCriteria):
     В норме используется только под капотом и вручную не инстанцируется.
     """
 
-    def is_satisfied_by(self, candidate: object):
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return not self.nested_criteria.is_satisfied_by(candidate)
 
 
-class BinaryCriteria(Criteria):
+class BinaryCriteria(Criteria[DomainObject]):
     """
     Интерфейс критерия с двумя вложенными критериями.
     Нужен для реализации операций, в которых порядок элементов имеет значение.
@@ -264,15 +255,18 @@ class BinaryCriteria(Criteria):
     left: Criteria
     right: Criteria
 
-    def __init__(self, left: Criteria, right: Criteria):
+    def __init__(
+        self, left: Criteria[DomainObject],
+        right: Criteria[DomainObject],
+    ) -> None:
         self.left = left
         self.right = right
 
-    def is_satisfied_by(self, candidate: object) -> bool:
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         raise NotImplementedError
 
 
-class Xor(BinaryCriteria):
+class Xor(BinaryCriteria[DomainObject]):
     """
     Критерий, проверяющий, что только один вложенный критерий удовлетворяется.
 
@@ -281,20 +275,20 @@ class Xor(BinaryCriteria):
     только под капотом и вручную не инстанцируется.
     """
 
-    def is_satisfied_by(self, candidate: object):
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return (
             self.left.is_satisfied_by(candidate) ^
             self.right.is_satisfied_by(candidate)
         )
 
 
-class ReturnsTrue(Criteria):
+class ReturnsTrue(Criteria[DomainObject]):
 
-    def is_satisfied_by(self, candidate: object) -> bool:
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return True
 
 
-class ReturnsFalse(Criteria):
+class ReturnsFalse(Criteria[DomainObject]):
 
-    def is_satisfied_by(self, candidate: object) -> bool:
+    def is_satisfied_by(self, candidate: DomainObject) -> bool:
         return False

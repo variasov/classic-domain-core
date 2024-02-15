@@ -1,9 +1,11 @@
 import pytest
 
-from classic.domain.core import criteria, CriteriaNotSatisfied
+from classic.domain.core import (
+    Entity, Criteria, criteria, CriteriaNotSatisfied
+)
 
 
-class Entity:
+class SomeEntity(Entity):
 
     def __init__(self, value):
         self.value = value
@@ -31,10 +33,10 @@ def without_param(entity):
 
 @pytest.fixture
 def entity():
-    return Entity(1)
+    return SomeEntity(1)
 
 
-def test_instance(entity):
+def test_instance(entity: SomeEntity):
     assert entity.with_param(1) is True
     assert entity.with_param.is_satisfied(1) is True
     assert entity.with_param.must_be_satisfied(1) is None
@@ -52,20 +54,20 @@ def test_instance(entity):
 
 
 @pytest.mark.parametrize('criteria_', (
-    Entity.with_param(1),
-    Entity.with_param(1) & Entity.without_param(),
-    Entity.with_param(1) & Entity.without_param() & with_param(1),
-    Entity.with_param(1) & Entity.without_param() & with_param(1) & without_param(),
-    Entity.with_param(1) & Entity.without_param() & with_param(1) & without_param() & Entity.rule,
+    SomeEntity.with_param(1),
+    SomeEntity.with_param(1) & SomeEntity.without_param(),
+    SomeEntity.with_param(1) & with_param(1),
+    SomeEntity.with_param(1) & without_param(),
+    SomeEntity.with_param(1) & SomeEntity.rule,
 ))
-def test_class_criteria(criteria_, entity):
+def test_class_criteria(criteria_: Criteria[SomeEntity], entity: SomeEntity):
     assert criteria_(entity) is True
     assert criteria_.is_satisfied_by(entity) is True
     criteria_.must_be_satisfied_by(entity)
 
 
-def test_method_without_params(entity):
+def test_method_without_params(entity: SomeEntity):
     assert entity.without_param() is True
 
     with pytest.raises(CriteriaNotSatisfied):
-        Entity.without_param().must_be_satisfied_by(Entity(None))
+        SomeEntity.without_param().must_be_satisfied_by(SomeEntity(None))
